@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GPU Mandelbrot</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      background-color: #111;
+
+      height: 100vh;
+      width: 100vw;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      overflow: hidden;
+
+      font-family: "Inter", sans-serif;
+      font-size: 24px;
+      color: white;
+    }
+
+    #header {
+      height: 20vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #header-title {
+      font-size: 2em;
+      font-weight: 600;
+      background: linear-gradient(to right, #43ff95, #1c58ff);
+      -webkit-background-clip: text;
+      background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: transparent;
+    }
+
+    #canvas-container {
+      height: 60vh;
+      aspect-ratio: 16 / 9;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+    }
+
+    #footer {
+      height: 20vh;
+      padding: 16px;
+    }
+
+    canvas {
+      cursor: move;
+      width: 100%;
+      height: 100%;
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      image-rendering: pixelated;
+      box-shadow: 0 0 20px rgba(1, 1, 1, 0.6); 
+      border-radius: 16px;
+    }
+
+    .dim {
+      opacity: 0.4;
+    }
+
+    .dimmer {
+      opacity: 0.1;
+    }
+  </style>
+</head>
+<body>
+  <div id="header">
+    <div>
+      <p id="header-title">GPU-Accelerated Mandelbrot Explorer</p>
+      <p>Drag and scroll to control</p>
+    </div>
+  </div>
+  <div id="canvas-container">
+    <canvas id="mandelbrot-canvas"></canvas>
+  </div>
+  <div id="footer">
+    <!-- something needs to go here!! -->
+  </div>
+  <script type="module">
+    import init, { MandelbrotApp } from './pkg/mandelbrot_website.js';
+
+    async function start() {
+      await init();
+      
+      const canvas = document.getElementById("mandelbrot-canvas");
+      const app = await MandelbrotApp.create(canvas);
+
+      //
+      // ResizeObserver is guaranteed to execute initially, which draws a frame.
+      //
+
+      // Input tracking state.
+      let state = {
+        isDragging: false,
+        lastX: 0.0,
+        lastY: 0.0,
+        dx: 0.0,
+        dy: 0.0,
+        zoomDelta: 0.0,
+        cursorX: canvas.width * 0.5,
+        cursorY: canvas.height * 0.5,
+      };
+
+      canvas.addEventListener("mousedown", (e) => {
+        if (e.button === 0) {
+          state.isDragging = true;
+          state.lastX = e.clientX;
+          state.lastY = e.clientY;
+        }
+      });
+
+      window.addEventListener("mousemove", (e) => {
+        const rect = canvas.getBoundingClientRect();
+        state.cursorX = e.clientX - rect.left;
+        state.cursorY = e.clientY - rect.top;
+
+        if (state.isDragging) {
+          state.dx += e.clientX - state.lastX;
+          state.dy += e.clientY - state.lastY;
+          state.lastX = e.clientX;
+          state.lastY = e.clientY;
+        }
+      });
+
+      window.addEventListener("mouseup", (e) => {
+        if (e.button === 0) {
+          state.isDragging = false;
+        }
+      });
+
+      canvas.addEventListener("wheel", (e) => {
+        e.preventDefault();
+
+        const factor = e.deltaMode === 1 ? 1.0 : 0.01;
+        state.zoomDelta += e.deltaY * factor;
+      });
+
+      function frame() {
+        app.tick(state.dx, state.dy, state.zoomDelta, state.cursorX, state.cursorY);
+        state.dx = 0.0;
+        state.dy = 0.0;
+        state.zoomDelta = 0.0;
+        requestAnimationFrame(frame);
+      }
+      requestAnimationFrame(frame);
+
+      const resizeObserver = new ResizeObserver((entries) => {
+        for (let entry of entries) {
+          const width = Math.floor(entry.contentRect.width);
+          const height = Math.floor(entry.contentRect.height);
+          canvas.width = width;
+          canvas.height = height;
+          app.resize(width, height);
+        }
+      });
+      resizeObserver.observe(canvas);
+    }
+    start();
+  </script>
+</body>
+</html>
