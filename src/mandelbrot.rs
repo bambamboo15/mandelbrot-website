@@ -1,3 +1,5 @@
+use dashu::{base::BitTest, integer::IBig};
+
 use crate::floatexp::*;
 
 #[repr(C)]
@@ -5,9 +7,22 @@ use crate::floatexp::*;
 struct MandelbrotUniforms {
     max_ref_iteration: i32,
     max_iteration: i32,
+    iterations_to_skip: i32,
+    first_order_skip_coefficient: ComplexExp,
     mag: FloatExp,
+    _padding_0: [f32; 1],
     res: [f32; 2],
-    _padding: [f32; 2],
+}
+
+const _: () = {
+    assert!(std::mem::size_of::<MandelbrotUniforms>() % 16 == 0);
+};
+
+/// Determines what the [`MandelbrotEngine`] is currently doing.
+enum EngineState {
+    Nothing,
+    CalculatingReferenceOrbit,
+    Rendering,
 }
 
 /// Renders Mandelbrot with a GPU.
@@ -39,12 +54,17 @@ pub struct MandelbrotEngine {
     shared_texture: wgpu::Texture,
     shared_texture_view: wgpu::TextureView,
 
+    // Intermediate drawing variables.
+    scale_factor: f32,
+    dirty: bool,
+    state: EngineState,
+
     // Mathematical configuration.
-    pub iterations: usize,
-    pub pan: [Float; 2],
+    iterations: usize,
+    pan: [Float; 2],
     /// Exponential zoom. For instance, `0.0` is identity, `1.0` means zoomed by a factor of two, etc.
     /// Higher zoom values make for significantly smaller steps across pixels.
-    pub zoom: f32,
+    zoom: f32,
 }
 
 impl MandelbrotEngine {
@@ -292,10 +312,59 @@ impl MandelbrotEngine {
             bilinear_sampler,
             shared_texture,
             shared_texture_view,
+            scale_factor: 0.25,
+            dirty: true,
+            state: EngineState::Nothing,
             iterations,
             pan: [Float::ZERO, Float::ZERO],
             zoom: 0.0,
         }
+    }
+
+    pub fn pan(&self) -> [&Float; 2] {
+        [&self.pan[0], &self.pan[1]]
+    }
+
+    pub fn set_pan(&mut self, pan: [Float; 2]) {
+        self.pan = pan.map(|x| {
+            x.with_precision(self.zoom as usize + 48)
+                .value()
+                .clamp(Float::from(-2), Float::from(2))
+        });
+        self.dirty = true;
+    }
+
+    pub fn pan_by(&mut self, delta: [Float; 2]) {
+        let [real_delta, imag_delta] = delta;
+        self.pan[0] += real_delta;
+        self.pan[1] += imag_delta;
+
+        let pan = std::mem::take(&mut self.pan);
+        self.set_pan(pan);
+    }
+
+    pub fn zoom(&self) -> f32 {
+        self.zoom
+    }
+
+    pub fn set_zoom(&mut self, zoom: f32) {
+        let zoom = zoom.max(0.0);
+        if self.zoom != zoom {
+            self.dirty = true;
+        }
+        self.zoom = zoom;
+    }
+
+    pub fn iterations(&self) -> usize {
+        self.iterations
+    }
+
+    pub fn set_iterations(&mut self, iterations: usize) {
+        let iterations = iterations.max(2);
+        if self.iterations != iterations {
+            self.dirty = true;
+        }
+        self.iterations = iterations;
     }
 
     /// Helper function that computes the complex number offset from a pixel offset.
@@ -313,12 +382,17 @@ impl MandelbrotEngine {
 
         let [complex_x, complex_y] = [0, 1].map(|i| {
             let aspect_ratio = f32::max(res[0], res[1]) / res[1 - i];
-            let unscaled = 0.665 * aspect_ratio * (pixels[i] / res[i]) * 2.0_f32.powf(mag_frac);
-            Float::try_from(unscaled).unwrap() * Float::from(2).powf(&Float::from(mag_int))
+            let unscaled = 2.66
+                * self.scale_factor
+                * aspect_ratio
+                * (pixels[i] / res[i])
+                * 2.0_f32.powf(mag_frac);
+            Float::try_from(unscaled).unwrap() * Float::from(2).powi(IBig::from(mag_int))
         });
         (complex_x, complex_y)
     }
 
+    /// Adjusts the resolution.
     pub fn resize(&mut self, width: u32, height: u32) {
         if width == 0 || height == 0 {
             return;
@@ -388,45 +462,124 @@ impl MandelbrotEngine {
             ],
         });
 
-        self.update();
+        self.dirty = true;
     }
 
-    /// Calculates and draws a new render.
-    pub fn update(&mut self) {
+    /// Ticks the renderer once. The entire render will be blitted at once to the output texture
+    /// when the rendering is over. This can happen across multiple ticks.
+    /// 
+    /// Returns if the state was dirty before this method was called.
+    pub fn tick(&mut self) -> bool {
+        if !self.dirty {
+            return false;
+        }
+
         self.calculate();
         self.draw();
+
+        self.dirty = false;
+        true
     }
 
     fn calculate(&mut self) {
-        // Adjust the precision of `pan` so that the reference orbit calculates correctly.
-        // I don't know what much else to do other than the heuristic of adding 64 to the zoom level.
-        self.pan = std::mem::take(&mut self.pan)
-            .map(|x| x.with_precision(self.zoom as usize + 64).value());
+        let timestamp_1 = web_time::Instant::now();
 
         // Compute the orbit buffer on the CPU in full multiprecision. Thanks to perturbation and
         // excellent rebasing algorithms we only need to ever do this once for the center point.
         // The reference orbit does not have to take up maximum iterations.
-        self.orbit = {
-            let mut orbit: Vec<ComplexExp> = Vec::new();
-            let (c, mut z) = (self.pan.clone(), [Float::ZERO, Float::ZERO]);
-            for _ in 0..self.iterations {
-                if z[0].sqr() + z[1].sqr() > Float::from(64) {
-                    break;
-                }
-                orbit.push(ComplexExp {
-                    x: (&z[0]).try_into().unwrap(),
-                    y: (&z[1]).try_into().unwrap(),
-                });
-                z = [
-                    z[0].sqr() - z[1].sqr() + &c[0],
-                    Float::from(2) * &z[0] * &z[1] + &c[1],
-                ];
+        self.orbit.clear();
+        let (c, mut z) = (self.pan.clone(), [Float::ZERO, Float::ZERO]);
+        for _ in 0..self.iterations {
+            let (z0, z1, z0_sqr, z1_sqr) = (&z[0], &z[1], &z[0].sqr(), &z[1].sqr());
+            // This code looks intimidating but it only tries calculating the minimum necessary
+            // to prove that the escape condition `z0_sqr + z1_sqr > 64.0` does happen. This is
+            // done by checking if both are not at least `32.0`.
+            if (z0_sqr.repr().significand().bit_len() as isize + z0_sqr.repr().exponent() >= 6
+                || z1_sqr.repr().significand().bit_len() as isize + z1_sqr.repr().exponent() >= 6)
+                && z0_sqr + z1_sqr > Float::from(64)
+            {
+                break;
             }
-            orbit
-        };
 
-        self.uniforms.max_ref_iteration = (self.orbit.len() as i32) - 1;
+            self.orbit.push(ComplexExp::from_floats(z0, z1).unwrap());
+            let z0_z1 = z0 * z1;
+            z = [z0_sqr - z1_sqr + &c[0], &z0_z1 + &z0_z1 + &c[1]];
+        }
+
+        // In the internal loop, at the very least we index orbit elements 0 and 1.
+        // Thus, the orbit has to be at least a length of 2, even after iteration
+        // skipping.
+        assert!(self.orbit.len() >= 2);
+
+        let timestamp_2 = web_time::Instant::now();
+
+        // All pixels on the screen are a maximum distance `|dc| < mu` away from the center.
+        // For the first however many perturbation iterations, the `dz[n]^2` term is so
+        // comparitively small that it can be entirely left out, making the equation linear!
+        //
+        // dz[n+1] = 2r[n]dz[n] + dz[n]^2 + dc
+        //
+        // We take advantage of this, and recurse a sequence `a[n] = 2r[n]a[n] + 1` until a
+        // iteration `n` such that `dz[n]^2` is no longer negligibly small. Since our skip
+        // is entirely independent of the pixel (and thus `dz`), with some math we do have
+        // the formula `|a[n]|^2 * mu << |a[n+1]|` (where `<<` means negligibly smaller than)
+        // as our way to keep going. With this we approximate for that `n` the iteration skip
+        // `dz[n] ≈ a[n] * dc` (that is, we have to compute the values for `n` and `a[n]`).
+        //
+        // Not only that, `mu` gets exponentially smaller as we zoom in, which lets more iterations
+        // be skipped. However, we can only do this up to the reference orbit size. This is
+        // not a problem normally, but if the user is off-center on a Minibrot, performance
+        // will waffle as the Minibrot uses far more iterations than the reference orbit.
+        //
+        // NOTE: We only perform first-order series approximation as seond-order series approximation
+        // could skip past iterations where the rebase condition should have triggered, and
+        // cause glitches. This most notably happens around minibrots.
+        //
+        // ADDITIONAL NOTE: There are glitches with this approach, too. Many glitches, especially around
+        // dense minibrots. Seems like this skips over desynchronization iterations as well. What can I
+        // really do? For a slight performance boost I will leave it here.
+        self.uniforms.res = [self.config.width as f32, self.config.height as f32];
+        let (mu_real, mu_imag) = self.complex_from_pixel_offset(
+            self.config.width as f32 * 0.5,
+            self.config.height as f32 * 0.5,
+        );
+        let mu = ComplexExp::from_floats(&mu_real, &mu_imag)
+            .unwrap()
+            .length();
+        let (mut a, mut n) = (ComplexExp::from(0.0), 0);
+        for r in self.orbit.iter().take(self.orbit.len() - 2) {
+            let alpha = a.length();
+            let a_next = ComplexExp::from(2.0) * (*r * a) + ComplexExp::from(1.0);
+            let alpha_next = a_next.length();
+            let lhs = alpha.sqr() * mu;
+            let rhs = alpha_next;
+            // This condition checks if they differ by 2^22, which is floating-point
+            // preicsion with 1 additional bit of cheesing.
+            if lhs.mantissa() > 0.0
+                && (rhs.mantissa() <= 0.0 || lhs.exponent() + 23 > rhs.exponent())
+            {
+                break;
+            }
+            (a, n) = (a_next, n + 1);
+        }
+
+        let timestamp_3 = web_time::Instant::now();
+        web_sys::console::log_1(
+            &format!(
+                "skip: {}\norbit: {}\nfull: {}\norbit calculation: {}ms\nseries skip calculation: {}ms",
+                n,
+                self.orbit.len(),
+                self.iterations,
+                timestamp_2.duration_since(timestamp_1).as_millis(),
+                timestamp_3.duration_since(timestamp_2).as_millis(),
+            )
+            .into(),
+        );
+
+        self.uniforms.max_ref_iteration = (self.orbit.len() - 1) as i32;
         self.uniforms.max_iteration = self.iterations as i32;
+        self.uniforms.iterations_to_skip = n;
+        self.uniforms.first_order_skip_coefficient = a;
         self.uniforms.mag = FloatExp::from_exponent(-self.zoom).unwrap();
     }
 
@@ -468,10 +621,9 @@ impl MandelbrotEngine {
         }
 
         // Populate all buffers.
-        let scale_factor = 1.0;
         self.uniforms.res = [
-            self.config.width as f32 * scale_factor,
-            self.config.height as f32 * scale_factor,
+            self.config.width as f32 * self.scale_factor,
+            self.config.height as f32 * self.scale_factor,
         ];
         self.queue.write_buffer(
             &self.uniform_buffer,

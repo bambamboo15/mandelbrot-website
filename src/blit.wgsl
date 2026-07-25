@@ -3,12 +3,18 @@ struct FloatExp {
     exponent: i32,
 };
 
+struct ComplexExp {
+    x: FloatExp,
+	y: FloatExp,
+};
+
 struct MandelbrotUniforms {
     max_ref_iteration: i32,
     max_iteration: i32,
+    iterations_to_skip: i32,
+    first_order_skip_coefficient: ComplexExp,
     mag: FloatExp,
     res: vec2<f32>,
-    _padding: vec2<f32>,
 };
 
 @group(0) @binding(0) var t_canvas: texture_2d<f32>;

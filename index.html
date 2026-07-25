@@ -1,3 +1,12 @@
+<!--
+	If you see this :)
+
+	-1.99996619445037030418434688506350579675531241540724851511761922944801584242342684381376129778868913812287046406560949864353810575744772166485672496092803920095332176654843899
+    0.000000000000000000000000000000000300138243679093832407249730397759249873468311907733352701742572801204749756148235811856472992884140755192241865049781816254785289455481571221457726813208724311827020946640834
+    522.390707804
+    50100
+-->
+
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -24,24 +33,37 @@
 
       height: 100vh;
       width: 100vw;
-      display: flex;
-      flex-direction: column;
-      align-items: center;
       overflow: hidden;
 
       font-family: "Inter", sans-serif;
-      font-size: 24px;
+      font-size: 16px;
       color: white;
     }
 
-    #header {
-      height: 20vh;
+    #ui {
+      position: absolute;
+      padding: 10px 16px 13px 16px;
+      border-radius: 0 0 16px 0;
+
       display: flex;
+      flex-direction: column;
       justify-content: center;
       align-items: center;
+      gap: 16px;
+
+      background: rgba(20, 20, 20, 0.35);
+      backdrop-filter: blur(20px) saturate(180%);
+      -webkit-backdrop-filter: blur(20px) saturate(180%);
+      border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+      box-shadow: 0 4px 30px rgba(0, 0, 0, 0.4);
+
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
+      user-select: none;
     }
 
-    #header-title {
+    #ui-title {
       font-size: 2em;
       font-weight: 600;
       background: linear-gradient(to right, #43ff95, #1c58ff);
@@ -51,66 +73,118 @@
       color: transparent;
     }
 
-    #canvas-container {
-      height: 60vh;
-      aspect-ratio: 16 / 9;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-    }
-
-    #footer {
-      height: 20vh;
-      padding: 16px;
-    }
-
     canvas {
       cursor: move;
       width: 100%;
       height: 100%;
-      max-width: 100%;
-      max-height: 100%;
       object-fit: contain;
       image-rendering: pixelated;
-      box-shadow: 0 0 20px rgba(1, 1, 1, 0.6); 
-      border-radius: 16px;
+      box-shadow: 0 0 20px rgba(1, 1, 1, 0.6);
     }
 
-    .dim {
-      opacity: 0.4;
+    input {
+      background-color: rgba(20, 20, 20, 0.35);
+      border: none;
+      border-radius: 20px;
+      padding: 8px 12px;
+      margin: 0 8px;
+      font: inherit;
+      color: inherit;
+      display: inline-block;
     }
 
-    .dimmer {
-      opacity: 0.1;
+    #coords-container {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      width: 100%;
+    }
+
+    .coords-table {
+      display: grid;
+      grid-template-columns: max-content max-content;
+      gap: 8px 12px;
+      align-items: center;
+      width: max-content;
+      color: #bbb;
+    }
+
+    .coords-label {
+      text-align: right;
+    }
+
+    .coords-input-field {
+      color: inherit;
+      font: inherit;
+      display: inline-block;
+    }
+
+    #coords-submit {
+      background-color: rgba(100, 100, 100, 0.5);
+      color: #111;
+      padding: 8px;
+      border-radius: 20px;
+      border: none;
+      font: inherit;
+      max-width: 90px;
+      transition: background-color 0.2s ease-in-out 0.0s,
+                  transform 0.1s ease;
+    }
+
+    #coords-submit:hover {
+      background-color: rgba(101, 189, 101, 0.7);
+      cursor: pointer;
+    }
+
+    #coords-submit:active {
+      transform: translateY(2px) scale(0.98);
     }
   </style>
 </head>
 <body>
-  <div id="header">
+  <div id="ui">
     <div>
-      <p id="header-title">GPU-Accelerated Mandelbrot Explorer</p>
+      <p id="ui-title">GPU-Accelerated Mandelbrot Explorer</p>
       <p>Drag and scroll to control</p>
     </div>
+    <div id="coords-container">
+      <div class="coords-table">
+        <div class="coords-label">real</div>
+        <div class="coords-input-field"><input type="text" id="coords-real"></div>
+        <div class="coords-label">imag</div>
+        <div class="coords-input-field"><input type="text" id="coords-imag"></div>
+        <div class="coords-label">zoom</div>
+        <div class="coords-input-field"><input type="text" id="coords-zoom"></div>
+        <div class="coords-label">iterations</div>
+        <div class="coords-input-field"><input type="text" id="coords-iterations"></div>
+      </div>
+      <button id="coords-submit">apply</button>
+    </div>
   </div>
-  <div id="canvas-container">
-    <canvas id="mandelbrot-canvas"></canvas>
-  </div>
-  <div id="footer">
-    <!-- something needs to go here!! -->
-  </div>
+  <canvas id="mandelbrot-canvas"></canvas>
   <script type="module">
     import init, { MandelbrotApp } from './pkg/mandelbrot_website.js';
 
     async function start() {
       await init();
       
+      const coords_real = document.getElementById("coords-real");
+      const coords_imag = document.getElementById("coords-imag");
+      const coords_zoom = document.getElementById("coords-zoom");
+      const coords_iterations = document.getElementById("coords-iterations");
+      const coords_submit = document.getElementById("coords-submit");
+      coords_submit.addEventListener("click", (e) => {
+        app.apply(coords_real.value, coords_imag.value, Number(coords_zoom.value), Number(coords_iterations.value));
+      });
+      
       const canvas = document.getElementById("mandelbrot-canvas");
-      const app = await MandelbrotApp.create(canvas);
-
-      //
-      // ResizeObserver is guaranteed to execute initially, which draws a frame.
-      //
-
+      const app = await MandelbrotApp.create(canvas, (real, imag, zoom, iterations) => {
+        coords_real.value = real;
+        coords_imag.value = imag;
+        coords_zoom.value = zoom;
+        coords_iterations.value = iterations;
+      });
+	  
       // Input tracking state.
       let state = {
         isDragging: false,

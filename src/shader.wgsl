@@ -60,9 +60,10 @@ fn fexp_sub(a: FloatExp, b: FloatExp) -> FloatExp {
 struct MandelbrotUniforms {
     max_ref_iteration: i32,
     max_iteration: i32,
+    iterations_to_skip: i32,
+    first_order_skip_coefficient: ComplexExp,
     mag: FloatExp,
     res: vec2<f32>,
-    _padding: vec2<f32>,
 };
 
 struct OrbitBuffer {
@@ -105,16 +106,20 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         fexp_new(ss.y * uniforms.mag.mantissa, uniforms.mag.exponent)
     );
     
-    var dz = ComplexExp(fexp_new(0.0, 0), fexp_new(0.0, 0));
-    var ref_iteration: i32 = 0;
-    var final_color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
+	// This would start at `0+0i`, but we skip the first couple iterations with a linear series skip.
+	var dz = ComplexExp(
+	    fexp_sub(fexp_mul(uniforms.first_order_skip_coefficient.x, dc.x), fexp_mul(uniforms.first_order_skip_coefficient.y, dc.y)),
+	    fexp_add(fexp_mul(uniforms.first_order_skip_coefficient.x, dc.y), fexp_mul(uniforms.first_order_skip_coefficient.y, dc.x))
+	);
 
+    var ref_iteration: i32 = uniforms.iterations_to_skip;
+    var final_color = vec4<f32>(0.0, 0.0, 0.0, 1.0);
 	var first_orbit = orbit.orbit[0];
-	var current_orbit = first_orbit;
+	var current_orbit = orbit.orbit[ref_iteration];
 
     // Main core perturbation loop.
     // `dz[n+1] = (2 * orbit[n] + dz[n]) * dz[n] + dc`
-    for (var iteration: i32 = 0; iteration < uniforms.max_iteration; iteration++) {
+    for (var iteration: i32 = ref_iteration; iteration < uniforms.max_iteration; iteration++) {
 		ref_iteration += 1;
         let next_orbit = orbit.orbit[ref_iteration];
 
@@ -140,7 +145,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
         
         // Check for divergence escape boundaries.
         if (dot(zv, zv) > 64.0) {
-            let nsmooth = ((f32(iteration) + 2.0) - log2(log(dot(zv, zv)))) * 0.5;
+            let nsmooth = ((f32(iteration) + 10.0) - log2(log(dot(zv, zv)))) * 0.1;
             let color1 = COLORS[i32(nsmooth) % 16];
             let color2 = COLORS[(i32(nsmooth) + 1) % 16];
             let t = fract(nsmooth);
@@ -151,7 +156,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 
         // Detect desynchronization steps and rollback reference orbits.
         if (dot(zv, zv) < dot(dzv, dzv) || ref_iteration == uniforms.max_ref_iteration) {
-            dz = z;
+           	dz = z;
             ref_iteration = 0;
 			current_orbit = first_orbit;
         } else {

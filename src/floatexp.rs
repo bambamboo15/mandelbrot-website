@@ -19,6 +19,7 @@ pub struct FloatExp {
 impl FloatExp {
     /// Constructs a [`FloatExp`] from a floating-point exponent value.
     /// Conceptually this will hold `2.0` raised to the power of the parameter.
+    #[must_use]
     pub fn from_exponent(exponent: f32) -> Option<Self> {
         if (exponent.is_nan() || exponent.is_infinite())
             || (exponent < i32::MIN as f32 || exponent > i32::MAX as f32)
@@ -41,12 +42,52 @@ impl FloatExp {
     }
 
     /// Constructs a [`FloatExp`] from an unnormalized mantissa and exponent.
+    #[must_use]
     pub fn from_parts(mantissa: f32, exponent: i32) -> Self {
         let (res_mantissa, res_exponent) = libm::frexpf(mantissa);
         FloatExp {
             mantissa: res_mantissa,
             exponent: res_exponent + exponent,
         }
+    }
+
+    /// Returns the (-1.0, -0.5] ∪ [0.5, 1.0) mantissa.
+    #[must_use]
+    pub fn mantissa(self) -> f32 {
+        self.mantissa
+    }
+
+    /// Returns the exponent.
+    #[must_use]
+    pub fn exponent(self) -> i32 {
+        self.exponent
+    }
+
+    /// Performs the square operation.
+    #[must_use]
+    pub fn sqr(mut self) -> Self {
+        self.mantissa *= self.mantissa;
+        self.exponent += self.exponent;
+        if self.mantissa < 0.5 {
+            self.mantissa += self.mantissa;
+            self.exponent -= 1;
+        }
+        self
+    }
+
+    /// Performs the square root operation.
+    #[must_use]
+    pub fn sqrt(mut self) -> Self {
+        self.mantissa = self.mantissa.sqrt();
+        if self.exponent & 1 != 0 {
+            self.mantissa *= if self.exponent > 0 {
+                std::f32::consts::SQRT_2
+            } else {
+                std::f32::consts::FRAC_1_SQRT_2
+            };
+        }
+        self.exponent >>= 1;
+        self
     }
 }
 
@@ -92,7 +133,7 @@ impl std::ops::Mul<FloatExp> for FloatExp {
 
     fn mul(self, rhs: FloatExp) -> Self::Output {
         let mut mantissa = self.mantissa * rhs.mantissa;
-        let mut exponent = self.exponent * rhs.exponent;
+        let mut exponent = self.exponent + rhs.exponent;
         if mantissa.abs() < 0.5 {
             mantissa += mantissa;
             exponent -= 1;
@@ -101,10 +142,16 @@ impl std::ops::Mul<FloatExp> for FloatExp {
     }
 }
 
-impl TryFrom<&FBig> for FloatExp {
+impl From<f32> for FloatExp {
+    fn from(value: f32) -> Self {
+        Self::from_parts(value, 0)
+    }
+}
+
+impl TryFrom<&Float> for FloatExp {
     type Error = ();
 
-    fn try_from(value: &FBig) -> Result<Self, Self::Error> {
+    fn try_from(value: &Float) -> Result<Self, Self::Error> {
         let repr = value.repr();
         let significand = repr.significand();
         let exponent = repr.exponent();
@@ -159,6 +206,67 @@ impl TryFrom<&FBig> for FloatExp {
 #[repr(C)]
 #[derive(Default, Copy, Clone, Debug, bytemuck::Pod, bytemuck::Zeroable)]
 pub struct ComplexExp {
-    pub x: FloatExp,
-    pub y: FloatExp,
+    pub real: FloatExp,
+    pub imag: FloatExp,
+}
+
+impl ComplexExp {
+    #[must_use]
+    pub fn new(real: FloatExp, imag: FloatExp) -> Self {
+        ComplexExp { real, imag }
+    }
+
+    #[must_use]
+    pub fn from_floats(real: &Float, imag: &Float) -> Option<Self> {
+        Some(Self::new(real.try_into().ok()?, imag.try_into().ok()?))
+    }
+
+    #[must_use]
+    pub fn length_squared(self) -> FloatExp {
+        self.real.sqr() + self.imag.sqr()
+    }
+
+    #[must_use]
+    pub fn length(self) -> FloatExp {
+        self.length_squared().sqrt()
+    }
+}
+
+impl std::ops::Add<ComplexExp> for ComplexExp {
+    type Output = ComplexExp;
+
+    fn add(self, rhs: ComplexExp) -> Self::Output {
+        Self::new(self.real + rhs.real, self.imag + rhs.imag)
+    }
+}
+
+impl std::ops::Sub<ComplexExp> for ComplexExp {
+    type Output = ComplexExp;
+
+    fn sub(self, rhs: ComplexExp) -> Self::Output {
+        Self::new(self.real - rhs.real, self.imag - rhs.imag)
+    }
+}
+
+impl std::ops::Mul<ComplexExp> for ComplexExp {
+    type Output = ComplexExp;
+
+    fn mul(self, rhs: ComplexExp) -> Self::Output {
+        Self::new(
+            self.real * rhs.real - self.imag * rhs.imag,
+            self.real * rhs.imag + self.imag * rhs.real,
+        )
+    }
+}
+
+impl From<f32> for ComplexExp {
+    fn from(value: f32) -> Self {
+        Self::from(FloatExp::from(value))
+    }
+}
+
+impl From<FloatExp> for ComplexExp {
+    fn from(value: FloatExp) -> Self {
+        Self::new(value, FloatExp::from(0.0))
+    }
 }
