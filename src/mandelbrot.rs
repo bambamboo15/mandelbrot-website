@@ -1,5 +1,4 @@
 use dashu::{base::BitTest, integer::IBig};
-
 use crate::floatexp::*;
 
 #[repr(C)]
@@ -20,8 +19,11 @@ const _: () = {
 
 /// Determines what the [`MandelbrotEngine`] is currently doing.
 enum EngineState {
+    /// Nothing is done on tick.
     Nothing,
-    CalculatingReferenceOrbit,
+    /// The state is dirty, so CPU state needs to be recalculated and GPU progress needs to be reset.
+    Dirty,
+    // TODO: Implement dynamic adaptive resolution and better lag control.
     Rendering,
 }
 
@@ -467,23 +469,30 @@ impl MandelbrotEngine {
 
     /// Ticks the renderer once. The entire render will be blitted at once to the output texture
     /// when the rendering is over. This can happen across multiple ticks.
-    /// 
+    ///
     /// Returns if the state was dirty before this method was called.
     pub fn tick(&mut self) -> bool {
-        if !self.dirty {
-            return false;
+        let was_dirty = self.dirty;
+        if self.dirty {
+            self.dirty = false;
+            self.state = EngineState::Dirty;
         }
 
-        self.calculate();
-        self.draw();
+        match &self.state {
+            EngineState::Dirty => {
+                self.calculate();
+                self.draw_compute();
+                self.draw_blit();
+                self.state = EngineState::Nothing;
+            }
+            EngineState::Nothing => {}
+            EngineState::Rendering => todo!(),
+        }
 
-        self.dirty = false;
-        true
+        was_dirty
     }
 
     fn calculate(&mut self) {
-        let timestamp_1 = web_time::Instant::now();
-
         // Compute the orbit buffer on the CPU in full multiprecision. Thanks to perturbation and
         // excellent rebasing algorithms we only need to ever do this once for the center point.
         // The reference orbit does not have to take up maximum iterations.
@@ -492,7 +501,7 @@ impl MandelbrotEngine {
         for _ in 0..self.iterations {
             let (z0, z1, z0_sqr, z1_sqr) = (&z[0], &z[1], &z[0].sqr(), &z[1].sqr());
             // This code looks intimidating but it only tries calculating the minimum necessary
-            // to prove that the escape condition `z0_sqr + z1_sqr > 64.0` does happen. This is
+            // to prove that the escape condition `z0_sqr + z1_sqr > 64.0` does not happen. This is
             // done by checking if both are not at least `32.0`.
             if (z0_sqr.repr().significand().bit_len() as isize + z0_sqr.repr().exponent() >= 6
                 || z1_sqr.repr().significand().bit_len() as isize + z1_sqr.repr().exponent() >= 6)
@@ -510,8 +519,6 @@ impl MandelbrotEngine {
         // Thus, the orbit has to be at least a length of 2, even after iteration
         // skipping.
         assert!(self.orbit.len() >= 2);
-
-        let timestamp_2 = web_time::Instant::now();
 
         // All pixels on the screen are a maximum distance `|dc| < mu` away from the center.
         // For the first however many perturbation iterations, the `dz[n]^2` term is so
@@ -563,27 +570,24 @@ impl MandelbrotEngine {
             (a, n) = (a_next, n + 1);
         }
 
-        let timestamp_3 = web_time::Instant::now();
-        web_sys::console::log_1(
-            &format!(
-                "skip: {}\norbit: {}\nfull: {}\norbit calculation: {}ms\nseries skip calculation: {}ms",
-                n,
-                self.orbit.len(),
-                self.iterations,
-                timestamp_2.duration_since(timestamp_1).as_millis(),
-                timestamp_3.duration_since(timestamp_2).as_millis(),
-            )
-            .into(),
-        );
-
         self.uniforms.max_ref_iteration = (self.orbit.len() - 1) as i32;
         self.uniforms.max_iteration = self.iterations as i32;
         self.uniforms.iterations_to_skip = n;
         self.uniforms.first_order_skip_coefficient = a;
         self.uniforms.mag = FloatExp::from_exponent(-self.zoom).unwrap();
+        
+        web_sys::console::log_1(
+            &format!(
+                "skip: {}\norbit: {}\nfull: {}",
+                n,
+                self.orbit.len(),
+                self.iterations,
+            )
+            .into(),
+        );
     }
 
-    fn draw(&mut self) {
+    fn draw_compute(&mut self) {
         // If the current number of iterations (upper bound for CPU orbit buffer length) is larger
         // than the length of the GPU orbit buffer, we have to destroy and reallocate the GPU buffer
         // accordingly.
@@ -636,18 +640,11 @@ impl MandelbrotEngine {
             bytemuck::cast_slice(&self.orbit),
         );
 
-        let surface_texture = match self.surface.get_current_texture() {
-            wgpu::CurrentSurfaceTexture::Success(texture) => texture,
-            _ => return,
-        };
-        let surface_view = surface_texture
-            .texture
-            .create_view(&wgpu::TextureViewDescriptor::default());
+        // Execute the compute shader.
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
 
-        // Pass 1: execute the compute shader thread grid.
         {
             let mut compute_pass =
                 encoder.begin_compute_pass(&wgpu::ComputePassDescriptor::default());
@@ -659,7 +656,21 @@ impl MandelbrotEngine {
             compute_pass.dispatch_workgroups(workgroup_count_x, workgroup_count_y, 1);
         }
 
-        // Pass 2: draw the compute output texture to screen 1:1 via the blit pipeline.
+        self.queue.submit(std::iter::once(encoder.finish()));
+    }
+
+    fn draw_blit(&mut self) {
+        let surface_texture = match self.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(texture) => texture,
+            _ => return,
+        };
+        let surface_view = surface_texture
+            .texture
+            .create_view(&wgpu::TextureViewDescriptor::default());
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor::default());
+
         {
             let mut render_pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Blit Presentation Pass"),
