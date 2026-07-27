@@ -1,4 +1,0 @@
-[submodule "dashu"]
-	path = dashu
-	url = https://github.com/cmpute/dashu.git
-	branch = worktree-issue95
