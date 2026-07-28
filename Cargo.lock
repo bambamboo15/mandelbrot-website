@@ -135,7 +135,9 @@ checksum = "460fbee9c2c2f33933d720630a6a0bac33ba7053db5344fac858d4b8952d77d5"
 
 [[package]]
 name = "dashu"
-version = "0.5.0"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "11b3e7f6203085d047a79b529b748fc2831308c061021a0ebcb5dbe468875c85"
 dependencies = [
  "dashu-base",
  "dashu-cmplx",
@@ -148,11 +150,15 @@ dependencies = [
 
 [[package]]
 name = "dashu-base"
-version = "0.5.0"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a64b04cdfc4c8533100fe00304eb9687173bda47b1f1dac8af12ba13712ed49d"
 
 [[package]]
 name = "dashu-cmplx"
-version = "0.5.0"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "32e1fe61433d3214cef4df944931694bd845df7511f59cf1ccc53769db417583"
 dependencies = [
  "dashu-base",
  "dashu-float",
@@ -164,7 +170,9 @@ dependencies = [
 
 [[package]]
 name = "dashu-float"
-version = "0.5.0"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dff9b4987c9fe252fb0e7ec775b676f419e0a44b28138ae79bf3475581932f63"
 dependencies = [
  "dashu-base",
  "dashu-int",
@@ -176,7 +184,9 @@ dependencies = [
 
 [[package]]
 name = "dashu-int"
-version = "0.5.0"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b6ee98721d5d223e5b64b642dd9588b79d9ef415554b13720308b77d628c3be6"
 dependencies = [
  "cfg-if",
  "dashu-base",
@@ -188,7 +198,9 @@ dependencies = [
 
 [[package]]
 name = "dashu-macros"
-version = "0.5.0"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5250b87f46f4e54061093f4e43b4c9cbdc8b6ec45be42dd407e12198146339d3"
 dependencies = [
  "dashu-base",
  "dashu-cmplx",
@@ -203,7 +215,9 @@ dependencies = [
 
 [[package]]
 name = "dashu-ratio"
-version = "0.5.0"
+version = "0.5.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "727613e0312d442301147d9e45eb2e7c2797230fc6d223a2c51ecf0e98dfeb5e"
 dependencies = [
  "dashu-base",
  "dashu-float",
