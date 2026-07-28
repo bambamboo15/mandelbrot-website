@@ -61,9 +61,15 @@ struct MandelbrotUniforms {
     max_ref_iteration: i32,
     max_iteration: i32,
     iterations_to_skip: i32,
-    first_order_skip_coefficient: ComplexExp,
-    mag: FloatExp,
-    res: vec2<f32>,
+    first_order_skip_coefficient_x_mantissa: f32,
+    first_order_skip_coefficient_x_exponent: i32,
+    first_order_skip_coefficient_y_mantissa: f32,
+    first_order_skip_coefficient_y_exponent: i32,
+    mag_mantissa: f32,
+	mag_exponent: i32,
+	res_x: f32,
+	res_y: f32,
+	_padding_0_0: f32,
 };
 
 struct OrbitBuffer {
@@ -76,8 +82,25 @@ struct OrbitBuffer {
 
 @compute @workgroup_size(16, 16)
 fn main(@builtin(global_invocation_id) id: vec3<u32>) {
+	// Uniforms.
+	let first_order_skip_coefficient = ComplexExp(
+		FloatExp(
+			uniforms.first_order_skip_coefficient_x_mantissa,
+			uniforms.first_order_skip_coefficient_x_exponent
+		),
+		FloatExp(
+			uniforms.first_order_skip_coefficient_y_mantissa,
+			uniforms.first_order_skip_coefficient_y_exponent
+		)
+	);
+	let res = vec2<f32>(uniforms.res_x, uniforms.res_y);
+	let mag = FloatExp(
+		uniforms.mag_mantissa,
+		uniforms.mag_exponent
+	);
+
     // 1. Thread bounds guard checking against native resolution limits
-    let res_u = vec2<u32>(uniforms.res);
+    let res_u = vec2<u32>(res);
     if (id.x >= res_u.x || id.y >= res_u.y) {
         return;
     }
@@ -95,21 +118,21 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
     );
 
 	let pixel_coord = vec2<f32>(id.xy);
-    let norm_uv = pixel_coord / uniforms.res; // Yields standard [0.0, 1.0] range
+    let norm_uv = pixel_coord / res; // Yields standard [0.0, 1.0] range
     let uv = (norm_uv * 2.0 - 1.0) * vec2<f32>(1.0, -1.0);
-    let ar = max(uniforms.res.x, uniforms.res.y) / uniforms.res.yx;
+    let ar = max(res.x, res.y) / res.yx;
     let ss = uv * ar * 1.33;
 
     // Initialize custom precision positions.
     let dc = ComplexExp(
-        fexp_new(ss.x * uniforms.mag.mantissa, uniforms.mag.exponent),
-        fexp_new(ss.y * uniforms.mag.mantissa, uniforms.mag.exponent)
+        fexp_new(ss.x * mag.mantissa, mag.exponent),
+        fexp_new(ss.y * mag.mantissa, mag.exponent)
     );
     
 	// This would start at `0+0i`, but we skip the first couple iterations with a linear series skip.
 	var dz = ComplexExp(
-	    fexp_sub(fexp_mul(uniforms.first_order_skip_coefficient.x, dc.x), fexp_mul(uniforms.first_order_skip_coefficient.y, dc.y)),
-	    fexp_add(fexp_mul(uniforms.first_order_skip_coefficient.x, dc.y), fexp_mul(uniforms.first_order_skip_coefficient.y, dc.x))
+	    fexp_sub(fexp_mul(first_order_skip_coefficient.x, dc.x), fexp_mul(first_order_skip_coefficient.y, dc.y)),
+	    fexp_add(fexp_mul(first_order_skip_coefficient.x, dc.y), fexp_mul(first_order_skip_coefficient.y, dc.x))
 	);
 
     var ref_iteration: i32 = uniforms.iterations_to_skip;

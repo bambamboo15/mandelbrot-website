@@ -169,13 +169,19 @@
       });
       
       const canvas = document.getElementById("mandelbrot-canvas");
-      const app = await MandelbrotApp.create(canvas, (real, imag, zoom, iterations) => {
-        coords_real.value = real;
-        coords_imag.value = imag;
-        coords_zoom.value = zoom;
-        coords_iterations.value = iterations;
-      });
-	  
+      let app;
+      try {
+        app = await MandelbrotApp.create(canvas, (real, imag, zoom, iterations) => {
+          coords_real.value = real;
+          coords_imag.value = imag;
+          coords_zoom.value = zoom;
+          coords_iterations.value = iterations;
+        });
+      } catch {
+        alert("The rendering context failed to load. Make sure WebGPU is explicitly enabled on your browser!");
+        return;
+      }
+    
       // Input tracking state.
       let state = {
         isDragging: false,

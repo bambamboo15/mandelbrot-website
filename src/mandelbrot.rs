@@ -9,8 +9,8 @@ struct MandelbrotUniforms {
     iterations_to_skip: i32,
     first_order_skip_coefficient: ComplexExp,
     mag: FloatExp,
-    _padding_0: [f32; 1],
     res: [f32; 2],
+    _padding_0: [f32; 1],
 }
 
 const _: () = {

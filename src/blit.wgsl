@@ -12,9 +12,15 @@ struct MandelbrotUniforms {
     max_ref_iteration: i32,
     max_iteration: i32,
     iterations_to_skip: i32,
-    first_order_skip_coefficient: ComplexExp,
-    mag: FloatExp,
-    res: vec2<f32>,
+    first_order_skip_coefficient_x_mantissa: f32,
+    first_order_skip_coefficient_x_exponent: i32,
+    first_order_skip_coefficient_y_mantissa: f32,
+    first_order_skip_coefficient_y_exponent: i32,
+    mag_mantissa: f32,
+	mag_exponent: i32,
+	res_x: f32,
+	res_y: f32,
+	_padding_0_0: f32,
 };
 
 @group(0) @binding(0) var t_canvas: texture_2d<f32>;
@@ -49,6 +55,6 @@ fn vs_main(@builtin(vertex_index) i: u32) -> VertexOutput {
 @fragment
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
 	let texture_dims = vec2<f32>(textureDimensions(t_canvas));
-	let active_corner_uv = in.uv * (uniforms.res / texture_dims);
+	let active_corner_uv = in.uv * (vec2<f32>(uniforms.res_x, uniforms.res_y) / texture_dims);
     return textureSample(t_canvas, s_canvas, active_corner_uv);
 }
