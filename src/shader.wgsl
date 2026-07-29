@@ -100,8 +100,7 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
 	);
 
     // 1. Thread bounds guard checking against native resolution limits
-    let res_u = vec2<u32>(res);
-    if (id.x >= res_u.x || id.y >= res_u.y) {
+    if (id.x >= u32(ceil(res.x)) || id.y >= u32(ceil(res.y))) {
         return;
     }
 

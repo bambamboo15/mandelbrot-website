@@ -675,6 +675,9 @@ impl MandelbrotEngine {
     fn draw_blit(&mut self) {
         let surface_texture = match self.surface.get_current_texture() {
             wgpu::CurrentSurfaceTexture::Success(texture) => texture,
+            wgpu::CurrentSurfaceTexture::Lost => {
+                panic!("The surface texture was lost, likely because the calculation took too long.");
+            }
             _ => return,
         };
         let surface_view = surface_texture
