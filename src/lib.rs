@@ -35,7 +35,7 @@ impl MandelbrotApp {
             height: 0.0,
             on_update,
         };
-        app.apply("-0.75", "0.0", 0.0, 400);
+        app.apply("-0.75", "0.0", 0.0, 400, 2);
         app
     }
 
@@ -73,7 +73,7 @@ impl MandelbrotApp {
         self.height = height as f32;
     }
 
-    pub fn apply(&mut self, real: &str, imag: &str, zoom: f32, iterations: usize) {
+    pub fn apply(&mut self, real: &str, imag: &str, zoom: f32, iterations: usize, pixelation: u8) {
         self.engine.set_pan([real, imag].map(|x| {
             Decimal::from_str(x)
                 .unwrap()
@@ -83,6 +83,7 @@ impl MandelbrotApp {
         }));
         self.engine.set_zoom(zoom);
         self.engine.set_iterations(iterations);
+        self.engine.set_pixelation(pixelation);
     }
 
     fn on_update(&self) {
@@ -96,6 +97,7 @@ impl MandelbrotApp {
                 &JsValue::from(imag),
                 &JsValue::from(self.engine.zoom()),
                 &JsValue::from(self.engine.iterations()),
+                &JsValue::from(self.engine.pixelation()),
             ),
         );
     }

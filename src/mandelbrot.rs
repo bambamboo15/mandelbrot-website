@@ -57,7 +57,7 @@ pub struct MandelbrotEngine {
     shared_texture_view: wgpu::TextureView,
 
     // Intermediate drawing variables.
-    scale_factor: f32,
+    pixelation: u8,
     dirty: bool,
     state: EngineState,
 
@@ -314,7 +314,7 @@ impl MandelbrotEngine {
             bilinear_sampler,
             shared_texture,
             shared_texture_view,
-            scale_factor: 0.25,
+            pixelation: 0,
             dirty: true,
             state: EngineState::Nothing,
             iterations,
@@ -369,6 +369,18 @@ impl MandelbrotEngine {
         self.iterations = iterations;
     }
 
+    pub fn pixelation(&self) -> u8 {
+        self.pixelation
+    }
+
+    pub fn set_pixelation(&mut self, pixelation: u8) {
+        let pixelation = pixelation.min(4);
+        if self.pixelation != pixelation {
+            self.dirty = true;
+        }
+        self.pixelation = pixelation;
+    }
+
     /// Helper function that computes the complex number offset from a pixel offset.
     ///
     /// This does not care about the orientation of pixels: a positive Y pixel offset
@@ -385,10 +397,10 @@ impl MandelbrotEngine {
         let [complex_x, complex_y] = [0, 1].map(|i| {
             let aspect_ratio = f32::max(res[0], res[1]) / res[1 - i];
             let unscaled = 2.66
-                * self.scale_factor
+                * 2.0f32.powi(-(self.pixelation as i32))
                 * aspect_ratio
                 * (pixels[i] / res[i])
-                * 2.0_f32.powf(mag_frac);
+                * 2.0f32.powf(mag_frac);
             Float::try_from(unscaled).unwrap() * Float::from(2).powi(IBig::from(mag_int))
         });
         (complex_x, complex_y)
@@ -625,9 +637,10 @@ impl MandelbrotEngine {
         }
 
         // Populate all buffers.
+        let inverse_scale_factor = 2.0f32.powi(-(self.pixelation as i32));
         self.uniforms.res = [
-            self.config.width as f32 * self.scale_factor,
-            self.config.height as f32 * self.scale_factor,
+            self.config.width as f32 * inverse_scale_factor,
+            self.config.height as f32 * inverse_scale_factor,
         ];
         self.queue.write_buffer(
             &self.uniform_buffer,

@@ -148,6 +148,8 @@
         <div class="coords-input-field"><input type="text" id="coords-zoom"></div>
         <div class="coords-label">iterations</div>
         <div class="coords-input-field"><input type="text" id="coords-iterations"></div>
+        <div class="coords-label">pixelation</div>
+        <div class="coords-input-field"><input type="text" id="coords-pixelation"></div>
       </div>
       <button id="coords-submit">apply</button>
     </div>
@@ -163,19 +165,21 @@
       const coords_imag = document.getElementById("coords-imag");
       const coords_zoom = document.getElementById("coords-zoom");
       const coords_iterations = document.getElementById("coords-iterations");
+      const coords_pixelation = document.getElementById("coords-pixelation");
       const coords_submit = document.getElementById("coords-submit");
       coords_submit.addEventListener("click", (e) => {
-        app.apply(coords_real.value, coords_imag.value, Number(coords_zoom.value), Number(coords_iterations.value));
+        app.apply(coords_real.value, coords_imag.value, Number(coords_zoom.value), Number(coords_iterations.value), Number(coords_pixelation.value));
       });
       
       const canvas = document.getElementById("mandelbrot-canvas");
       let app;
       try {
-        app = await MandelbrotApp.create(canvas, (real, imag, zoom, iterations) => {
+        app = await MandelbrotApp.create(canvas, (real, imag, zoom, iterations, pixelation) => {
           coords_real.value = real;
           coords_imag.value = imag;
           coords_zoom.value = zoom;
           coords_iterations.value = iterations;
+		  coords_pixelation.value = pixelation;
         });
       } catch {
         alert("The rendering context failed to load. Make sure WebGPU is explicitly enabled on your browser!");
