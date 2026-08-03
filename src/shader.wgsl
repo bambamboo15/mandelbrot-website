@@ -176,8 +176,11 @@ fn main(@builtin(global_invocation_id) id: vec3<u32>) {
             break;
         }
 
+		let z_dot_z_precise = fexp_add(fexp_mul(z.x, z.x), fexp_mul(z.y, z.y));
+		let dz_dot_dz_precise = fexp_add(fexp_mul(dz.x, dz.x), fexp_mul(dz.y, dz.y));
+
         // Detect desynchronization steps and rollback reference orbits.
-        if (dot(zv, zv) < dot(dzv, dzv) || ref_iteration == uniforms.max_ref_iteration) {
+        if (z_dot_z_precise.exponent < dz_dot_dz_precise.exponent || (z_dot_z_precise.exponent == dz_dot_dz_precise.exponent && z_dot_z_precise.mantissa < dz_dot_dz_precise.mantissa) || ref_iteration == uniforms.max_ref_iteration) {
            	dz = z;
             ref_iteration = 0;
 			current_orbit = first_orbit;

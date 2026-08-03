@@ -74,6 +74,11 @@ impl MandelbrotApp {
     }
 
     pub fn apply(&mut self, real: &str, imag: &str, zoom: f32, iterations: usize, pixelation: u8) {
+        self.engine.set_zoom(zoom);
+        self.engine.set_iterations(iterations);
+        self.engine.set_pixelation(pixelation);
+
+        // Pan is set last so zoom settings can take effect.
         self.engine.set_pan([real, imag].map(|x| {
             Decimal::from_str(x)
                 .unwrap()
@@ -81,9 +86,6 @@ impl MandelbrotApp {
                 .value()
                 .clamp(Float::from(-2), Float::from(2))
         }));
-        self.engine.set_zoom(zoom);
-        self.engine.set_iterations(iterations);
-        self.engine.set_pixelation(pixelation);
     }
 
     fn on_update(&self) {
