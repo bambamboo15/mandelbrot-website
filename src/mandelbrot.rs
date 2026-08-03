@@ -532,64 +532,45 @@ impl MandelbrotEngine {
         // skipping.
         assert!(self.orbit.len() >= 2);
 
-        
-        // NOTE: We only perform first-order series approximation as seond-order series approximation
-        // could skip past iterations where the rebase condition should have triggered, and
-        // cause glitches. This most notably happens around minibrots.
+        // All pixels on the screen are a maximum distance `|dc| < mu` away from the center.
+        // For the first however many perturbation iterations, the `dz[n]^2` term is so
+        // comparitively small that it can be entirely left out, making the equation linear!
         //
-        // ADDITIONAL NOTE: There are glitches with this approach, too. Many glitches, especially around
-        // dense minibrots. Seems like this skips over desynchronization iterations as well. What can I
-        // really do? For a slight performance boost I will leave it here.
+        // dz[n+1] = 2r[n]dz[n] + dz[n]^2 + dc
         //
-        // EXTRA NOTE: Glitches are consistent, so unfortunately I will have to disable this.
-        const ENABLE_SERIES_APPROXIMATION: bool = false;
-
-        let (n, a) = if ENABLE_SERIES_APPROXIMATION {
-            // All pixels on the screen are a maximum distance `|dc| < mu` away from the center.
-            // For the first however many perturbation iterations, the `dz[n]^2` term is so
-            // comparitively small that it can be entirely left out, making the equation linear!
-            //
-            // dz[n+1] = 2r[n]dz[n] + dz[n]^2 + dc
-            //
-            // We take advantage of this, and recurse a sequence `a[n] = 2r[n]a[n] + 1` until a
-            // iteration `n` such that `dz[n]^2` is no longer negligibly small. Since our skip
-            // is entirely independent of the pixel (and thus `dz`), with some math we do have
-            // the formula `|a[n]|^2 * mu << |a[n+1]|` (where `<<` means negligibly smaller than)
-            // as our way to keep going. With this we approximate for that `n` the iteration skip
-            // `dz[n] ≈ a[n] * dc` (that is, we have to compute the values for `n` and `a[n]`).
-            //
-            // Not only that, `mu` gets exponentially smaller as we zoom in, which lets more iterations
-            // be skipped. However, we can only do this up to the reference orbit size. This is
-            // not a problem normally, but if the user is off-center on a Minibrot, performance
-            // will waffle as the Minibrot uses far more iterations than the reference orbit.
-            self.uniforms.res = [self.config.width as f32, self.config.height as f32];
-            let (mu_real, mu_imag) = self.complex_from_pixel_offset(
-                self.config.width as f32 * 0.5,
-                self.config.height as f32 * 0.5,
-            );
-            let mu = ComplexExp::from_floats(&mu_real, &mu_imag)
-                .unwrap()
-                .length();
-            let (mut a, mut n) = (ComplexExp::from(0.0), 0);
-            for r in self.orbit.iter().take(self.orbit.len() - 2) {
-                let alpha = a.length();
-                let a_next = ComplexExp::from(2.0) * (*r * a) + ComplexExp::from(1.0);
-                let alpha_next = a_next.length();
-                let lhs = alpha.sqr() * mu;
-                let rhs = alpha_next;
-                // This condition checks if they differ by 2^22, which is floating-point
-                // preicsion with 1 additional bit of cheesing.
-                if lhs.mantissa() > 0.0
-                    && (rhs.mantissa() <= 0.0 || lhs.exponent() + 23 > rhs.exponent())
-                {
-                    break;
-                }
-                (a, n) = (a_next, n + 1);
+        // We take advantage of this, and recurse a sequence `a[n] = 2r[n]a[n] + 1` until a
+        // iteration `n` such that `dz[n]^2` is no longer negligibly small. Since our skip
+        // is entirely independent of the pixel (and thus `dz`), with some math we do have
+        // the formula `|a[n]|^2 * mu << |a[n+1]|` (where `<<` means negligibly smaller than)
+        // as our way to keep going. With this we approximate for that `n` the iteration skip
+        // `dz[n] ≈ a[n] * dc` (that is, we have to compute the values for `n` and `a[n]`).
+        //
+        // Not only that, `mu` gets exponentially smaller as we zoom in, which lets more iterations
+        // be skipped.
+        self.uniforms.res = [self.config.width as f32, self.config.height as f32];
+        let (mu_real, mu_imag) = self.complex_from_pixel_offset(
+            self.config.width as f32 * 0.5,
+            self.config.height as f32 * 0.5,
+        );
+        let mu = ComplexExp::from_floats(&mu_real, &mu_imag)
+            .unwrap()
+            .length();
+        let (mut a, mut n) = (ComplexExp::from(0.0), 0);
+        for r in self.orbit.iter().take(self.orbit.len() - 2) {
+            let alpha = a.length();
+            let a_next = ComplexExp::from(2.0) * (*r * a) + ComplexExp::from(1.0);
+            let alpha_next = a_next.length();
+            let lhs = alpha.sqr() * mu;
+            let rhs = alpha_next;
+            // This condition checks if they differ by 2^22, which is floating-point
+            // preicsion with 1 additional bit of cheesing.
+            if lhs.mantissa() > 0.0
+                && (rhs.mantissa() <= 0.0 || lhs.exponent() + 23 > rhs.exponent())
+            {
+                break;
             }
-            (n, a)
-        } else {
-            (0, ComplexExp::from(0.0))
-        };
+            (a, n) = (a_next, n + 1);
+        }
 
         self.uniforms.max_ref_iteration = (self.orbit.len() - 1) as i32;
         self.uniforms.max_iteration = self.iterations as i32;
